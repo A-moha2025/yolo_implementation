@@ -106,19 +106,35 @@ train_size = int(0.8 * len(dataset))
 val_size = len(dataset) - train_size
 train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
 
-# Create data loaders with num_workers=0 for easier debugging
+# Define a proper collate_fn
+def collate_fn(batch):
+    """
+    Custom collate function to batch images and keep targets as list of dictionaries.
+    
+    Args:
+        batch (list): List of tuples (image, target).
+    
+    Returns:
+        images (Tensor): Batched images.
+        targets (list): List of target dictionaries.
+    """
+    images = torch.stack([item[0] for item in batch], dim=0)
+    targets = [item[1] for item in batch]
+    return images, targets
+
+# Create data loaders with the corrected collate_fn
 train_loader = DataLoader(
     train_dataset,
     batch_size=16,
     shuffle=True,
-    num_workers=0,  # Set to 0 for easier debugging
-    collate_fn=lambda x: tuple(zip(*x))
+    num_workers=0,  # Set to 0 for easier debugging in Colab
+    collate_fn=collate_fn
 )
 
 val_loader = DataLoader(
     val_dataset,
     batch_size=16,
     shuffle=False,
-    num_workers=0,  # Set to 0 for easier debugging
-    collate_fn=lambda x: tuple(zip(*x))
+    num_workers=0,  # Set to 0 for easier debugging in Colab
+    collate_fn=collate_fn
 )
