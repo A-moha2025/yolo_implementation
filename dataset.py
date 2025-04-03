@@ -91,7 +91,7 @@ class VOCDataset(Dataset):
 
 # Define transformations
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.Resize((224, 224)),  # Ensure images are resized to 224x224
     transforms.ToTensor(),
 ])
 
