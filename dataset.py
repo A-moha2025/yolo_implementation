@@ -4,7 +4,6 @@ import torch
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Dataset
 import os
-import numpy as np
 import xml.etree.ElementTree as ET
 from PIL import Image
 
@@ -16,38 +15,42 @@ class VOCDataset(Dataset):
         self.transforms = transforms
         self.selected_classes = selected_classes
 
+        # Initialize VOCDetection
         voc = datasets.VOCDetection(root=self.root, year=self.year, image_set=self.image_set, download=True)
-        self.images = [item[0] for item in voc]
-        self.annotations = [item[1] for item in voc]
-
-        # Map class names to indices
+        
+        # Extract image and annotation file paths
+        self.images = voc.images  # List of image file paths
+        self.annotations = voc.annotations  # List of annotation objects
+        
+        # Mapping of class names to indices
         self.class_names = selected_classes
         self.class_map = {cls: idx for idx, cls in enumerate(self.class_names)}
-
+    
     def __len__(self):
         return len(self.images)
-
+    
     def __getitem__(self, idx):
-        # Load image
+        # Load image using file path
         img_path = self.images[idx]
         image = Image.open(img_path).convert("RGB")
 
-        # Load annotations
+        # Load corresponding annotation
         annotation = self.annotations[idx]
         targets = self.parse_annotation(annotation)
 
+        # Apply transformations if any
         if self.transforms:
             image = self.transforms(image)
 
         return image, targets
-
+    
     def parse_annotation(self, annotation):
         boxes = []
         labels = []
         for obj in annotation['annotation']['object']:
             cls = obj['name']
             if cls in self.class_map:
-                # Bounding box coordinates
+                # Extract bounding box coordinates
                 bbox = obj['bndbox']
                 xmin = float(bbox['xmin'])
                 ymin = float(bbox['ymin'])
