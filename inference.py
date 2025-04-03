@@ -23,6 +23,8 @@ def predict(image_path, model, device='cpu'):
 
     return output, image, original_size
 
+from IPython.display import Image as IPImage, display
+
 def visualize_predictions(output, image, original_size, threshold=0.5):
     S, B, C = 7, 1, 5
     grid_size = S
@@ -43,23 +45,23 @@ def visualize_predictions(output, image, original_size, threshold=0.5):
                 width = width * original_size[0] / S
                 height = height * original_size[1] / S
 
-                # Top-left corner
                 xmin = x_center - width / 2
                 ymin = y_center - height / 2
 
-                # Determine class
                 class_scores = cell_pred[5:]
                 class_idx = torch.argmax(class_scores).item()
                 class_confidence = class_scores[class_idx].item()
                 label = f"Class {class_idx}: {confidence * class_confidence:.2f}"
 
-                # Draw bounding box
                 rect = patches.Rectangle((xmin, ymin), width, height, linewidth=2, edgecolor='r', facecolor='none')
                 ax.add_patch(rect)
                 ax.text(xmin, ymin, label, fontsize=12, color='white', bbox=dict(facecolor='red', alpha=0.5))
 
     plt.axis('off')
-    plt.show()
+    plt.savefig("prediction.png")  # Save the figure
+    plt.close(fig)  # Close the figure to avoid displaying it twice
+
+    display(IPImage("prediction.png"))  # Display the saved image
 
 if __name__ == "__main__":
     import argparse
