@@ -1,121 +1,124 @@
-# train.py
+# dataset.py
+
 import torch
-import torch.optim as optim
-from model import SimpleYOLO
-import train_loader, val_loader
-from loss import YOLOLoss
-from tqdm import tqdm
-import matplotlib.pyplot as plt
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader, Dataset
+from PIL import Image
 
-def train_model(num_epochs=20, learning_rate=1e-3, device='cpu'):
-    """
-    Train the SimpleYOLO model.
+class VOCDataset(Dataset):
+    def __init__(self, root, year='2007', image_set='trainval', transforms=None, selected_classes=None):
+        """
+        Custom Dataset for PASCAL VOC 2007.
 
-    Args:
-        num_epochs (int): Number of training epochs.
-        learning_rate (float): Learning rate for the optimizer.
-        device (str): Device to train on ('cpu' or 'cuda').
+        Args:
+            root (str): Root directory of the VOC Dataset.
+            year (str): Year of the VOC dataset (e.g., '2007').
+            image_set (str): Image set to use ('train', 'trainval', 'val', 'test').
+            transforms (callable, optional): Transformations to apply to the images.
+            selected_classes (list, optional): List of classes to include.
+        """
+        self.voc = datasets.VOCDetection(root=root, year=year, image_set=image_set, download=True)
+        self.transforms = transforms
+        self.selected_classes = selected_classes if selected_classes is not None else []
+        self.class_map = {cls: idx for idx, cls in enumerate(self.selected_classes)}
 
-    Returns:
-        None
-    """
-    # Initialize model, loss, optimizer
-    model = SimpleYOLO().to(device)
-    criterion = YOLOLoss().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    def __len__(self):
+        return len(self.voc)
 
-    loss_history = []
+    def __getitem__(self, idx):
+        """
+        Retrieve the image and its corresponding targets.
 
-    for epoch in range(num_epochs):
-        model.train()
-        running_loss = 0.0
-        loop = tqdm(train_loader, desc=f"Epoch [{epoch+1}/{num_epochs}]")
-        for images, targets in loop:
-            images = images.to(device)
-            # Prepare target tensor
-            target_tensor = prepare_targets(targets, device)
+        Args:
+            idx (int): Index of the data sample.
 
-            # Forward pass
-            outputs = model(images)
-            loss = criterion(outputs, target_tensor)
+        Returns:
+            image (Tensor): Transformed image tensor.
+            targets (dict): Dictionary containing bounding boxes and labels.
+        """
+        image, annotation = self.voc[idx]
+        # 'image' is already a PIL Image object
+        # 'annotation' is a dictionary
 
-            # Backward and optimize
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+        # Apply transformations if any
+        if self.transforms:
+            image = self.transforms(image)
 
-            running_loss += loss.item()
-            loop.set_postfix(loss=loss.item())
+        # Parse annotation to extract bounding boxes and labels
+        targets = self.parse_annotation(annotation)
 
-        avg_loss = running_loss / len(train_loader)
-        loss_history.append(avg_loss)
-        print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
+        return image, targets
 
-        # Save the model checkpoint
-        torch.save(model.state_dict(), f'checkpoints/yolo_simple_epoch_{epoch+1}.pth')
+    def parse_annotation(self, annotation):
+        """
+        Parse the annotation dictionary to extract bounding boxes and labels.
 
-    # Plotting the loss curve
-    plt.figure(figsize=(10,5))
-    plt.plot(range(1, num_epochs+1), loss_history, marker='o')
-    plt.title("Training Loss over Epochs")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.grid(True)
-    plt.savefig("loss_curve.png")
-    plt.show()
+        Args:
+            annotation (dict): Annotation dictionary from VOC dataset.
 
-def prepare_targets(targets, device):
-    """
-    Convert targets into the required tensor shape.
+        Returns:
+            dict: Dictionary containing tensors of bounding boxes and labels.
+        """
+        boxes = []
+        labels = []
 
-    Args:
-        targets (list of dict): List of target dictionaries for each image in the batch.
-        device (torch.device): Device to place the tensor on.
+        # Check if 'object' is a list or dict (single object case)
+        objs = annotation['annotation'].get('object', [])
+        if isinstance(objs, dict):
+            objs = [objs]
 
-    Returns:
-        torch.Tensor: Tensor of shape [Batch, S, S, B*5 + C].
-    """
-    S, B, C = 7, 1, 5  # Grid size, bounding boxes, classes
-    batch_size = len(targets)
-    target_tensor = torch.zeros((batch_size, S, S, B * 5 + C)).to(device)
+        for obj in objs:
+            cls = obj['name']
+            if cls in self.class_map:
+                # Extract bounding box coordinates
+                bbox = obj['bndbox']
+                xmin = float(bbox['xmin'])
+                ymin = float(bbox['ymin'])
+                xmax = float(bbox['xmax'])
+                ymax = float(bbox['ymax'])
+                boxes.append([xmin, ymin, xmax, ymax])
+                labels.append(self.class_map[cls])
 
-    for i in range(batch_size):
-        for box in targets[i]['boxes']:
-            # Normalize coordinates
-            x_center = (box[0] + box[2]) / 2.0 / 224  # Normalize to [0,1]
-            y_center = (box[1] + box[3]) / 2.0 / 224
-            width = (box[2] - box[0]) / 224
-            height = (box[3] - box[1]) / 224
+        # Handle images without any selected classes
+        if len(boxes) == 0:
+            boxes = torch.zeros((0, 4), dtype=torch.float32)
+            labels = torch.zeros((0,), dtype=torch.int64)
+        else:
+            boxes = torch.tensor(boxes, dtype=torch.float32)
+            labels = torch.tensor(labels, dtype=torch.int64)
 
-            # Determine grid cell
-            grid_x = int(x_center * S)
-            grid_y = int(y_center * S)
+        return {'boxes': boxes, 'labels': labels}
 
-            # Boundary check
-            grid_x = min(max(grid_x, 0), S-1)
-            grid_y = min(max(grid_y, 0), S-1)
+# Define transformations
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+])
 
-            # Assign to the first bounding box (since B=1)
-            target_tensor[i, grid_y, grid_x, 0:2] = torch.tensor([x_center * S - grid_x, y_center * S - grid_y])
-            target_tensor[i, grid_y, grid_x, 2:4] = torch.tensor([width, height])
-            target_tensor[i, grid_y, grid_x, 4] = 1  # Confidence
+# Selected classes
+selected_classes = ["person", "bicycle", "car", "dog", "chair"]
 
-            # Assuming one bounding box per cell; for multiple objects, this needs to be adjusted
-            labels = targets[i]['labels']
-            if len(labels) > 0:
-                # Assign the first label; for multiple labels in the same cell, additional logic is needed
-                target_tensor[i, grid_y, grid_x, 5 + labels[0]] = 1  # One-hot encoding
+# Initialize dataset
+dataset = VOCDataset(root='.', year='2007', image_set='trainval', transforms=transform, selected_classes=selected_classes)
 
-    return target_tensor
+# Split into training and validation
+train_size = int(0.8 * len(dataset))
+val_size = len(dataset) - train_size
+train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
 
-if __name__ == "__main__":
-    # Detect if CUDA is available
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+# Create data loaders with num_workers=0 for easier debugging
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=16,
+    shuffle=True,
+    num_workers=0,  # Set to 0 for easier debugging
+    collate_fn=lambda x: tuple(zip(*x))
+)
 
-    # Ensure the checkpoints directory exists
-    import os
-    os.makedirs('checkpoints', exist_ok=True)
-
-    # Train the model
-    train_model(num_epochs=20, learning_rate=1e-3, device=device)
+val_loader = DataLoader(
+    val_dataset,
+    batch_size=16,
+    shuffle=False,
+    num_workers=0,  # Set to 0 for easier debugging
+    collate_fn=lambda x: tuple(zip(*x))
+)
