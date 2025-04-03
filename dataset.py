@@ -1,9 +1,8 @@
 # train.py
-
 import torch
 import torch.optim as optim
 from model import SimpleYOLO
-from dataset import train_loader, val_loader
+import train_loader, val_loader
 from loss import YOLOLoss
 from tqdm import tqdm
 import matplotlib.pyplot as plt
