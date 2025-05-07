@@ -1,0 +1,72 @@
+ # Step 1: Install and Import
+ !pip install -q ultralytics
+ from ultralytics import YOLO
+ import torch
+ import matplotlib.pyplot as plt
+ import matplotlib.patches as patches
+ from PIL import Image
+ import torchvision.transforms as T
+ # Step 2: Load pretrained model
+ model = YOLO('yolov5s.pt')
+ # Step 3: Upload image
+ from google.colab import files
+ uploaded = files.upload()
+ image_path = list(uploaded.keys())[0]
+ # Step 4: Visualize YOLO detection steps
+ def visualize_YOLO_steps(image_path, model, threshold=0.3):
+    img = Image.open(image_path).convert("RGB")
+    img_resized = T.Resize((640, 640))(img)
+    img_tensor = T.ToTensor()(img_resized).unsqueeze(0)
+    S = 7
+    # Step 1: Grid overlay
+    fig1, ax1 = plt.subplots(figsize=(8, 8))
+    ax1.imshow(img_resized)
+    for i in range(1, S):
+        ax1.axhline(i * 640 / S, color='gray', linewidth=1)
+        ax1.axvline(i * 640 / S, color='gray', linewidth=1)
+    ax1.set_title("Step 1: Grid Overlay")
+    ax1.axis('off')
+    plt.show()
+    # Step 2: Raw predictions
+    results = model(img_resized, verbose=False)[0]
+    fig2, ax2 = plt.subplots(figsize=(8, 8))
+    ax2.imshow(img_resized)
+    print("Step 2: Raw bounding boxes:")
+    if results.boxes is not None and len(results.boxes) > 0:
+        for box in results.boxes:
+            x1, y1, x2, y2 = box.xyxy[0].cpu()
+            conf = box.conf[0].item()
+            cls = int(box.cls[0])
+            label = model.names[cls]
+            print(f"- {label} ({conf:.2f})")
+            rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1,
+                                     linewidth=1, edgecolor='orange', facecolor='none')
+            ax2.add_patch(rect)
+    else:
+        print("No bounding boxes were detected")
+    ax2.set_title("Step 2: Raw Predictions")
+    ax2.axis('off')
+    plt.show()
+    # Step 3: Filtered final predictions
+    fig3, ax3 = plt.subplots(figsize=(8, 8))
+    ax3.imshow(img_resized)
+    found = False
+    for box in results.boxes:
+        x1, y1, x2, y2 = box.xyxy[0].cpu()
+        conf = box.conf[0].item()
+        cls = int(box.cls[0])
+        label = model.names[cls]
+        if conf > threshold:
+            found = True
+            rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1,
+                                     linewidth=2, edgecolor='cyan', facecolor='none')
+            ax3.add_patch(rect)
+            ax3.text(x1, y1 - 5, f"{label} ({conf:.2f})", color='white', fontsize=10,
+                     bbox=dict(facecolor='blue', alpha=0.5))
+    if not found:
+        print("No objects found above the confidence threshold")
+    ax3.set_title("Step 3: Final Detections after Filtering")
+    ax3.axis('off')
+    plt.show()
+ # Run the function on uploaded image
+ visualize_YOLO_steps(image_path, model)
